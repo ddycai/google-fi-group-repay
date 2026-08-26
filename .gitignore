@@ -1,0 +1,11 @@
+node_modules/
+
+# Real Venmo handles, amounts, and a home address — keep them out of git.
+config.json
+
+# A statement you download while testing.
+*.eml
+*.pdf
+
+# Generated from config.json; same handles, same reason.
+config.env

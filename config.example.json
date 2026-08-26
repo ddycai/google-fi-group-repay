@@ -1,0 +1,9 @@
+{
+  "people": [
+    { "name": "Your Name", "isOwner": true },
+    { "name": "Friend One", "venmo": "friend-one-handle" },
+    { "name": "Friend Two", "venmo": "friend-two-handle" }
+  ],
+  "noteTemplate": "Google Fi — {month}",
+  "allowedSenders": ["payments-noreply@google.com", "your-email@example.com"]
+}

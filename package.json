@@ -1,0 +1,22 @@
+{
+  "name": "google-fi-group-repay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "build:val": "node scripts/build-val.mjs",
+    "build:env": "node scripts/build-env.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "unpdf": "^1.8.1"
+  },
+  "license": "MIT"
+}
