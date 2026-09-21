@@ -82,8 +82,9 @@ test("a statement produces one email with a link per non-owner", async () => {
   const html = htmlOf(h.sent[0]);
   assert.equal(subject, "Google Fi August 2026 — $180.20 — first run");
   for (const handle of ["ada", "grace", "alan"]) {
-    assert.match(html, new RegExp(`payment-link\\?txn=charge[^"]*recipients=${handle}`));
-    assert.match(text, new RegExp(`payment-link\\?txn=charge.*recipients=${handle}`));
+    // August's amounts are all distinct, so every card is one person.
+    assert.match(html, new RegExp(`https://venmo\\.com/${handle}\\?txn=charge`));
+    assert.match(text, new RegExp(`https://venmo\\.com/${handle}\\?txn=charge`));
   }
 });
 
@@ -249,19 +250,17 @@ function buttonHref(html: string): string {
   return m[1]!.replace(/&amp;/g, "&");
 }
 
-test("every link in the email is the venmo.com payment-link form", async () => {
+test("single-person cards use venmo.com/<user>, never payment-link", async () => {
   const h = harness();
   await processStatement(statementMail, h.deps);
   const html = htmlOf(h.sent[0]);
 
-  // venmo.com is the universal-link domain, so a phone opens the app;
-  // account.venmo.com would skip that handoff and always land in a browser.
-  for (const href of html.match(/href="([^"]+)"/g) ?? []) {
-    assert.match(href, /https:\/\/venmo\.com\/payment-link\?/, href);
-  }
-  assert.doesNotMatch(html, /account\.venmo\.com/);
+  // venmo.com/payment-link loops between browser and app on a phone.
+  assert.doesNotMatch(html, /\/\/venmo\.com\/payment-link/);
+  assert.doesNotMatch(h.sent[0]!.text, /\/\/venmo\.com\/payment-link/);
   assert.doesNotMatch(html, /venmo:\/\//, "Gmail strips non-https schemes");
-  assert.doesNotMatch(h.sent[0]!.text, /account\.venmo\.com/);
+  // August has no shared amounts, so nothing should need the browser form.
+  assert.doesNotMatch(html, /account\.venmo\.com/);
 });
 
 test("a group offers the same charge one person at a time", async () => {

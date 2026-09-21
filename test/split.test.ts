@@ -127,7 +127,7 @@ test("people owing the same amount collapse into one link", () => {
   ]);
   assert.equal(
     big!.link,
-    "https://venmo.com/payment-link" +
+    "https://account.venmo.com/payment-link" +
       "?txn=charge&amount=34.60&note=Google%20Fi%20%E2%80%94%20August%202026" +
       "&recipients=ada-example,grace-example,rosalind-example",
   );
@@ -142,28 +142,25 @@ test("the comma separating usernames is not encoded away", () => {
   assert.doesNotMatch(link, /%2C/);
 });
 
-test("group links use payment-link, not the path form that 404s", () => {
-  // venmo.com/a,b,c is "this page isn't available" to any server that is asked.
-  const link = chargeLink(["ada", "grace", "rosalind"], 3460, "x");
-  assert.match(link, /^https:\/\/venmo\.com\/payment-link\?/);
-  assert.doesNotMatch(link, /venmo\.com\/ada/);
+test("one person gets venmo.com/<user>, which opens the app on a phone", () => {
+  assert.equal(
+    chargeLink("ada", 3460, "x"),
+    "https://venmo.com/ada?txn=charge&amount=34.60&note=x",
+  );
 });
 
-test("one link form serves both the app and a browser", () => {
-  // venmo.com is Venmo's universal-link domain, so a phone hands this to the
-  // app; anywhere else it 302s to account.venmo.com and renders as a page.
+test("a group gets account.venmo.com/payment-link", () => {
+  // venmo.com/a,b,c 404s, and venmo.com/payment-link loops between the
+  // browser and the app on a phone. This is the only form that works.
   const link = chargeLink(["ada", "grace"], 3460, "x");
-  assert.match(link, /^https:\/\/venmo\.com\/payment-link\?/);
+  assert.match(link, /^https:\/\/account\.venmo\.com\/payment-link\?/);
   assert.match(link, /recipients=ada,grace$/);
 });
 
-test("the link is never account.venmo.com, which skips the app handoff", () => {
-  assert.doesNotMatch(chargeLink(["ada"], 3460, "x"), /account\.venmo\.com/);
-});
-
-test("recipients go in the query, never the path", () => {
-  // venmo.com/a,b,c 404s once a server is actually asked.
-  assert.doesNotMatch(chargeLink(["ada", "grace"], 3460, "x"), /venmo\.com\/ada/);
+test("no link is ever venmo.com/payment-link", () => {
+  for (const users of [["ada"], ["ada", "grace"]]) {
+    assert.doesNotMatch(chargeLink(users, 3460, "x"), /\/\/venmo\.com\/payment-link/);
+  }
 });
 
 test("an all-equal month collapses to a single tap", () => {
@@ -195,8 +192,8 @@ test("a multi-recipient link rejects an empty username", () => {
 test("charge links encode the note and strip a leading @", () => {
   assert.equal(
     chargeLink("@ada-example", 3460, "Google Fi — August 2026"),
-    "https://venmo.com/payment-link" +
-      "?txn=charge&amount=34.60&note=Google%20Fi%20%E2%80%94%20August%202026&recipients=ada-example",
+    "https://venmo.com/ada-example" +
+      "?txn=charge&amount=34.60&note=Google%20Fi%20%E2%80%94%20August%202026",
   );
 });
 
@@ -215,10 +212,13 @@ test("formatCents pads the decimal", () => {
   assert.equal(formatCents(5), "$0.05");
 });
 
-test("group links are always the payment-link form", () => {
+test("a group's per-person links are the app form", () => {
   const rows = buildCharges(chargeable(computeShares(bill, config)), config.noteTemplate, bill.month);
-  // The app form cannot carry a comma list, so a group has no other option.
-  assert.match(groupCharges(rows)[0]!.link, /^https:\/\/venmo\.com\/payment-link\?/);
+  const [big] = groupCharges(rows);
+  assert.match(big!.link, /^https:\/\/account\.venmo\.com\/payment-link\?/);
+  for (const m of big!.members) {
+    assert.match(m.link, new RegExp(`^https://venmo\\.com/${m.username}\\?`));
+  }
 });
 
 test("no link is ever a venmo:// deeplink", () => {

@@ -33,42 +33,36 @@ The fallback, if Venmo ever breaks prefilled links, is the
 
 ### Venmo charge links
 
-Every link the email sends is this one shape:
+Two forms, chosen by how many people a link charges:
 
-```
-https://venmo.com/payment-link?txn=charge&amount=34.60&note=Google%20Fi%20—%20August%202026&recipients=<a,b,c>
-```
-
-`username` is the Venmo @handle, not a display name. Verified working on iOS:
-opens a Request screen with recipients, amount, and note prefilled.
-
-#### Why `venmo.com` and not `account.venmo.com`
-
-`venmo.com` is Venmo's universal-link domain; `account.venmo.com` is not.
-
-| | Phone with the app | Desktop, or no app |
+| Charging | Link | On a phone |
 | --- | --- | --- |
-| `venmo.com/payment-link?…` | iOS matches the domain **before any network request** and hands the URL to the app, which parses `recipients` itself | 302s to `account.venmo.com`, renders as a page |
-| `account.venmo.com/payment-link?…` | Not a universal-link domain — opens a browser tab | Same |
+| One person | `venmo.com/<user>?txn=charge&amount=…&note=…` | Opens the Venmo app |
+| Several | `account.venmo.com/payment-link?txn=charge&amount=…&note=…&recipients=a,b,c` | Opens in the browser |
 
-Verified with curl under both a mobile and a desktop User-Agent. One URL is
-correct everywhere, so there is no variant to select and no configuration knob.
+`<user>` is the Venmo @handle, not a display name. Both open a Request screen
+with recipients, amount, and note prefilled.
 
-Three near-misses, each of which cost a round of rework:
+A group card's button uses the browser form, and offers the same request one
+person at a time beneath it — those per-person links are the app form, so a
+group still has an in-app route, just not in one tap.
 
-- **`account.venmo.com/payment-link`** is the end of that redirect chain.
-  Linking it directly works, but skips the app handoff and always lands in a
-  browser.
-- **`venmo.com/<user>` in the path** resolves a single username. A phone makes
-  a comma list *appear* to work, because the app intercepts before the request;
-  ask a server and `venmo.com/a,b,c` 404s. The path form is a trap — it behaves
-  differently depending on whether anything is listening, which is why curl is
-  the wrong instrument for this question.
-- **A `venmo://` deeplink** was tried and removed. Gmail drops the `href` for
-  any scheme outside `http`/`https`/`mailto`/`ftp`, so it arrived as
-  unclickable text. It is not needed: on a phone Venmo's own redirect chain
-  ends at `venmo://paycharge` anyway, so an `https` link Gmail is happy to pass
-  through still opens the app.
+**Settled on a real phone, after several wrong turns.** Do not "simplify" to
+one form:
+
+- **`venmo.com/payment-link?…`** looks like the best of both — `venmo.com` for
+  the app handoff, `payment-link` for the list. On a real phone it sends the
+  browser and the app into an **endless redirect loop**. This was the shipped
+  form for one month, chosen on the strength of a single successful test and
+  `curl` traces; the September statement is what exposed it.
+- **`venmo.com/a,b,c`** resolves a single username only and 404s on a list.
+- **A `venmo://` deeplink** is stripped by Gmail, which drops the `href` on any
+  scheme outside `http`/`https`/`mailto`/`ftp`. It is not needed: on a phone,
+  Venmo's own redirect from `venmo.com/<user>` ends at `venmo://` anyway.
+
+`curl` is the wrong instrument for all of this. It cannot observe the iOS
+universal-link handoff or the app's side of a redirect, which is exactly where
+every one of these forms succeeds or fails. Only a phone settles it.
 
 #### One amount per link
 

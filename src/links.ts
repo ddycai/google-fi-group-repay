@@ -25,22 +25,20 @@ export function amountFromCents(cents: number): string {
 }
 
 /**
- * One charge link for one or more people.
+ * One charge link for one or more people. The form depends on how many.
  *
- * `venmo.com/payment-link` is the only URL that is right on every device:
+ * **One person — `venmo.com/<user>?txn=charge…`.** On a phone this is the
+ * form that reliably opens the Venmo app with the request prefilled.
  *
- *  - On a phone with Venmo installed, iOS matches `venmo.com` as a universal
- *    link and hands the URL straight to the app, before any network request.
- *    The app reads the whole `recipients` list.
- *  - Anywhere else it 302s to `account.venmo.com/payment-link` and renders in
- *    the browser, same recipients, same amount.
+ * **Several — `account.venmo.com/payment-link?…&recipients=a,b,c`.** The only
+ * form that carries a list. It opens in the browser rather than the app, but
+ * it works. Two near-misses, both confirmed on a real phone:
  *
- * Linking `account.venmo.com` directly skips the app handoff and always lands
- * in a browser, and `venmo.com/<user>` in the path resolves a single username
- * only — it 404s on a comma list once a server is actually asked. This form
- * avoids both traps.
+ *  - `venmo.com/a,b,c` resolves a single username only and 404s on a list.
+ *  - `venmo.com/payment-link?…` sends the phone into an endless redirect loop
+ *    between the browser and the app.
  *
- * There is still only one `amount` parameter, so everyone in a single link is
+ * There is only one `amount` parameter, so everyone in a single link is
  * charged the same. Callers must group by amount first.
  *
  * Usernames are encoded individually and joined with a literal comma; encoding
@@ -52,11 +50,15 @@ export function chargeLink(username: string | string[], cents: number, note: str
   if (users.length === 0) throw new Error("No Venmo usernames given.");
   if (users.some((u) => u === "")) throw new Error("Venmo username is empty.");
 
-  const recipients = users.map(encode).join(",");
   const amount = amountFromCents(cents);
   const note_ = encode(truncateNote(note));
 
-  return `https://venmo.com/payment-link?txn=charge&amount=${amount}&note=${note_}&recipients=${recipients}`;
+  if (users.length === 1) {
+    return `https://venmo.com/${encode(users[0]!)}?txn=charge&amount=${amount}&note=${note_}`;
+  }
+
+  const recipients = users.map(encode).join(",");
+  return `https://account.venmo.com/payment-link?txn=charge&amount=${amount}&note=${note_}&recipients=${recipients}`;
 }
 
 export function buildNote(template: string, month: string): string {

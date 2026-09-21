@@ -210,10 +210,13 @@ function chargeLink(username, cents, note) {
   const users = (Array.isArray(username) ? username : [username]).map(normalizeUsername);
   if (users.length === 0) throw new Error("No Venmo usernames given.");
   if (users.some((u) => u === "")) throw new Error("Venmo username is empty.");
-  const recipients = users.map(encode).join(",");
   const amount = amountFromCents(cents);
   const note_ = encode(truncateNote(note));
-  return `https://venmo.com/payment-link?txn=charge&amount=${amount}&note=${note_}&recipients=${recipients}`;
+  if (users.length === 1) {
+    return `https://venmo.com/${encode(users[0])}?txn=charge&amount=${amount}&note=${note_}`;
+  }
+  const recipients = users.map(encode).join(",");
+  return `https://account.venmo.com/payment-link?txn=charge&amount=${amount}&note=${note_}&recipients=${recipients}`;
 }
 function buildNote(template, month) {
   return template.replaceAll("{month}", month);
