@@ -13,21 +13,13 @@ export interface IncomingMail {
   attachments: Array<{ name: string; type: string; bytes: () => Promise<Uint8Array> }>;
 }
 
-/**
- * Gmail will not forward to a new address until you confirm a code it sends to
- * that address — which nobody can read when the address is a val. Recognise
- * that one message and pass it through, or setup is a dead end.
- */
+/** Relay Gmail’s forwarding confirmation to the configured recipient. */
 export const FORWARDING_CONFIRMATION_SENDER = "forwarding-noreply@google.com";
 
 export interface OutgoingMail {
   subject: string;
   text: string;
-  /**
-   * Omitted for text-only mail. Val Town's email() rejects an empty string
-   * ("body/html must NOT have fewer than 1 characters"), so absent and empty
-   * are not interchangeable here.
-   */
+  /** Omitted for text-only mail. */
   html?: string;
 }
 
@@ -67,12 +59,6 @@ export function findPdf<T extends { name: string; type: string }>(attachments: T
   return pdfs[0]!;
 }
 
-/**
- * Statement email in, charge-link email out.
- *
- * All I/O is injected so this can be exercised without a Val Town runtime —
- * which matters, because the alternative is discovering a bug once a month.
- */
 export async function processStatement(
   message: IncomingMail,
   deps: ProcessDeps,

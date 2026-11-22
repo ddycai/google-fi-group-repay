@@ -7,5 +7,12 @@ config.json
 *.eml
 *.pdf
 
-# Generated from config.json; same handles, same reason.
+# Private dotenv files.
 config.env
+
+# Local deployment configuration and private statement exports.
+.env*
+!.env.example
+.vercel/
+statement-history*.json
+.vercel

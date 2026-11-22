@@ -205,7 +205,6 @@ test("a Gmail forwarding confirmation is relayed so setup can complete", async (
   assert.match(h.sent[0]!.text, /123456789/);
   assert.equal(h.saved.length, 0);
 
-  // Val Town rejects an empty html body, so it must be absent, not "".
   assert.equal(h.sent[0]!.html, undefined);
 });
 
@@ -223,7 +222,7 @@ test("no mail is ever sent with an empty html body", async () => {
 
   assert.equal(h.sent.length, 2);
   for (const mail of h.sent) {
-    assert.notEqual(mail.html, "", `"${mail.subject}" would be rejected by Val Town`);
+    assert.notEqual(mail.html, "", `"${mail.subject}" has an empty HTML body`);
     assert.ok(mail.text.length > 0);
   }
 });

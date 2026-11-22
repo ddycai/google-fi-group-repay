@@ -84,136 +84,175 @@ If the per-person amounts don't sum to the printed total, the run **fails**
 rather than guessing. Same if someone on the statement isn't in your config —
 better a loud failure than quietly not charging the new roommate.
 
-## Setup
+## Vercel and Resend setup
 
-You'll need a [Val Town](https://val.town) account (free tier is enough) and
-Gmail. Budget about fifteen minutes, once.
+Use one Vercel project, private Blob store, and Resend webhook for testing and
+monthly bills. Going live means switching the Gmail forwarding filter.
 
-Val Town is used for one specific reason: its email trigger gives you an inbox
-address **without owning a domain**, and its free tier can send email to
-yourself. That combination is what makes an unattended monthly run possible at
-zero cost.
+### 1. Prepare your bill roster
 
-### 1. Configure your plan
+Run these commands from the local checkout that contains `package.json` and
+`vercel.json`.
 
 ```bash
-git clone https://github.com/ddycai/google-fi-group-repay.git
-cd google-fi-group-repay
 npm install
-cp config.example.json config.json
+cp -n config.example.json config.json
 ```
 
 Edit `config.json`:
 
-```json
-{
-  "people": [
-    { "name": "Your Name", "isOwner": true },
-    { "name": "Friend One", "venmo": "friend-one-handle" },
-    { "name": "Friend Two", "venmo": "friend-two-handle" }
-  ],
-  "noteTemplate": "Google Fi — {month}",
-  "allowedSenders": ["payments-noreply@google.com", "your-email@example.com"]
-}
-```
+- Match each person's name exactly as it appears on the Fi statement.
+- Give the bill payer `"isOwner": true` and enter the other members' Venmo handles.
+- In `allowedSenders`, keep `payments-noreply@google.com`. Replace the sample
+  email with the address you'll use to **manually forward** the test bill.
+  If you only use automatic forwarding, remove the sample email.
 
-- `name` must match the Fi statement **exactly**. A mismatch fails the run
-  instead of silently dropping someone.
-- `venmo` is the @handle from their Venmo profile, **not** their display name.
-  Venmo silently ignores a recipient it can't resolve, so a typo here means
-  that person just doesn't get charged.
-- Whoever pays Google Fi gets `"isOwner": true` and no `venmo` — they're
-  excluded from the charge list.
-- `allowedSenders` is who the val accepts statements from. Anything from
-  anyone else is dropped **before** the PDF is parsed. See
-  [below](#who-the-val-accepts-mail-from) for what to put here.
-
-`config.json` is gitignored. It holds real handles.
-
-#### Who the val accepts mail from
-
-Two addresses matter, and which you need depends on how the statement gets
-there:
-
-| How you forward | `From:` the val sees | Needs in `allowedSenders` |
-| --- | --- | --- |
-| Gmail auto-forwarding *(recommended)* | `payments-noreply@google.com` — Fi's own | `payments-noreply@google.com` |
-| Pressing **Forward** by hand | **your** address | your address too |
-
-Automatic forwarding preserves Fi's address in `From:`. Pressing **Forward**
-creates a new message from you, so the val sees your address and rejects it
-unless you have listed yourself.
-
-The example ships `your-email@example.com` in the second slot so the option is
-visible. **Replace it with your own address, or delete the entry** if you only
-ever auto-forward — `npm run build:env` refuses to generate anything while the
-placeholder is still there, so you cannot ship it to a live val by accident.
-
-(`example.com` is reserved by RFC 2606 and can never be registered, so the
-placeholder is inert even if the guard is bypassed by setting the environment
-variables by hand in Val Town's UI.)
-
-Listing your own address is a genuine trade, not just convenience:
-
-- It lets you forward a statement by hand — useful for testing, for a month
-  Gmail's filter missed, or before you have auto-forwarding set up.
-- It widens the gate. `From:` is a plain header and nothing here verifies it
-  cryptographically (see [ARCHITECTURE.md](ARCHITECTURE.md)), so every address
-  you list is one more that an attacker who knows your trigger address can
-  claim to be.
-
-Hand-forwarding also defeats the point of the automation, since you have to
-remember to do it. Use it to get set up, then rely on the filter.
-
-### 2. Deploy the val
+### 2. Link your Vercel project
 
 ```bash
-npm run build:val    # bundles src/ into valtown/main.ts
+npx vercel login
+npx vercel link
 ```
 
-Create a val at [val.town](https://val.town), give it an **Email** trigger, and
-paste in **`valtown/main.ts`**:
+| CLI prompt | What to choose |
+| --- | --- |
+| Account or scope | Your personal account |
+| Project | Link your existing project, or create `google-fi-repay` |
+| Code directory | `./` if you ran the CLI from the checkout |
+| Customize settings? | **No** |
+| Connect this Git repository? | **No** to deploy manually from your Mac |
+
+**No framework detected** is expected. `vercel.json` sets the framework preset,
+and `package.json` specifies Node.js 22. The CLI deploys the local files,
+including uncommitted changes.
+
+### 3. Connect a private Blob store
+
+1. In the project's Vercel dashboard, go to **Storage → Create Storage →
+   Blob → Continue**.
+2. Choose **Private**, name the store `google-fi-repay-blob`, and click
+   **Create**. Vercel connects it automatically when you start inside the project.
+3. Under **Settings → Environment Variables**, check that `BLOB_STORE_ID` is
+   available in **Production**. Keep the default variable names.
+
+If you created the store from your account's Storage page, open the store's
+**Projects** tab and connect it to your project. Include **Production**.
+The deployed function uses Vercel's built-in authentication. A read-write token
+is only needed when you run the history tools from your Mac.
+
+### 4. Get a Resend address and API key
+
+1. Open [Resend → Emails → Receiving](https://resend.com/emails/receiving).
+   Click **⋯ → Inbound address** to find your built-in `*.resend.app` domain.
+2. Pick a unique name before the `@`. If your domain were `abc123.resend.app`,
+   your receiving address could be `fi-k8m2@abc123.resend.app`. You can use that
+   address immediately as `FI_GROUP_REPAY_INBOUND`.
+3. In [Resend → API Keys](https://resend.com/api-keys), create a key with
+   receiving and sending access. Copy it for `RESEND_API_KEY`.
+
+For a test without a custom domain, use `onboarding@resend.dev` as
+`FI_GROUP_REPAY_FROM` and **your Resend account email** as `FI_GROUP_REPAY_TO`.
+That account email receives summaries and alerts. The `@…resend.app` address
+is where you forward the bills.
+
+### 5. Create the webhook and copy its signing secret
+
+Find your project's stable `.vercel.app` address under **Settings →
+Domains**. If you don't have a URL yet, run `npx vercel deploy --prod` from
+your linked checkout to create the first deployment. Here `--prod` targets
+the linked project's **Production** environment. You'll configure its email processing in step 6.
+
+1. Open [Resend → Webhooks](https://resend.com/webhooks) and click
+   **Add Webhook**.
+2. Enter the project's stable URL plus `/api/resend`, for example
+   `https://google-fi-repay.vercel.app/api/resend`. Resend must be able
+   to reach that URL without a Vercel login.
+3. Select **`email.received`** and save. Open the new webhook's details and
+   copy its **Signing Secret**. You'll use this as `RESEND_WEBHOOK_SECRET`
+   in step 6. It is separate from the API key.
+
+### 6. Upload the environment variables and deploy
+
+Generate the local env file:
 
 ```bash
-pbcopy < valtown/main.ts        # macOS
+npm run build:env
+nano .env.vercel
 ```
 
-> Deploy the bundle, not `src/val.ts`. The source file's relative imports don't
-> exist on Val Town and it fails at runtime with `ERR_MODULE_NOT_FOUND`. The
-> bundle has every module inlined.
+`build:env` creates or updates `.env.vercel`. It refreshes the roster
+and sender allowlist from `config.json` and preserves your saved settings
+and secrets. Fill in any blanks for the inbound address, destination email,
+API key, and webhook signing secret from steps 4 and 5.
 
-### 3. Upload your config
+```dotenv
+FI_GROUP_REPAY_INBOUND=fi-k8m2@abc123.resend.app
+FI_GROUP_REPAY_FROM=onboarding@resend.dev
+FI_GROUP_REPAY_TO=your-resend-account-email@example.com
+RESEND_API_KEY=
+RESEND_WEBHOOK_SECRET=
+```
+
+Run this from the linked checkout to upload the file. It adds or replaces
+nonempty values in the project's **Production** environment. The file is
+ignored by Git and excluded from the deployment upload.
 
 ```bash
-npm run build:env    # writes config.env from config.json
+npm run vercel:env
 ```
 
-In the val's **Environment variables**, import `config.env`. It sets
-`FI_GROUP_REPAY_CONFIG` and `FI_GROUP_REPAY_ALLOWED_SENDERS`.
+You can also paste the file's completed entries together under
+**Settings → Environment Variables** in Vercel. Select **Production**.
 
-`config.json` stays the source of truth — after changing a handle or the
-roster, re-run `build:env` and re-import rather than editing the variables by
-hand.
+```bash
+npx vercel deploy --prod
+```
 
-### 4. Point Gmail at it
+### 7. Test one bill
 
-Copy the val's `@valtown.email` trigger address, then in Gmail:
+Manually forward your most recent Fi statement with the PDF attached from an
+address in `allowedSenders` to your Resend address. Check the amounts and Venmo
+links in the summary. The first bill establishes the baseline. Forwarding the
+same statement again should produce a summary marked `(repeat)`.
 
-1. **Settings → Forwarding and POP/IMAP → Add a forwarding address**, paste it.
-2. Gmail emails a confirmation code to that address. **The val will relay that
-   code to you** — it recognises the message and forwards it, so you can finish
-   the step. (Otherwise the code would land where nobody can read it.)
-3. Create a filter on
-   `from:payments-noreply@google.com subject:"Google Fi monthly statement"`
-   with **Forward it to** set to that address, so only the statement goes.
+### 8. Set up Gmail forwarding
 
-> Use Gmail's automatic forwarding, not the **Forward** button. Auto-forwarding
-> preserves Fi's address in `From:`, which is what the sender allowlist checks
-> — and it means never having to remember, which is the entire point. Pressing
-> **Forward** sends the statement as *you*, so it only works if your own
-> address is in [`allowedSenders`](#who-the-val-accepts-mail-from).
+1. In Gmail, go to **Settings → Forwarding and POP/IMAP → Add a forwarding
+   address** and enter the same Resend address you just tested. The app relays
+   Google's verification message to `FI_GROUP_REPAY_TO`.
+2. Create or edit a Gmail filter to forward to that address. Keep one active
+   forwarding destination for this query:
 
-That's it. Next statement, the email arrives by itself.
+   ```text
+   from:payments-noreply@google.com subject:"Google Fi monthly statement"
+   ```
+
+3. Check that the first automatically forwarded statement produces a summary.
+
+### If a delivery is stuck
+
+After 23 hours the app pauses automatic resends for an unresolved delivery.
+To inspect state from your Mac, open the Blob store’s **Projects** tab and edit
+the project connection. Temporarily uncheck **Sensitive** for
+`BLOB_READ_WRITE_TOKEN` and save. Type the first command below in Terminal.
+Before pressing Return, copy the token value from Vercel.
+
+```zsh
+export BLOB_READ_WRITE_TOKEN="$(pbpaste)"
+env -u BLOB_STORE_ID npm run statement-state -- status
+```
+
+Check the sending records in Resend for the pending email.
+After 24 hours, use the command that matches what you confirmed:
+
+| Resend outcome | Command |
+| --- | --- |
+| Resend accepted the send | `env -u BLOB_STORE_ID npm run statement-state -- confirm-sent <email-id>` |
+| Resend did not accept the send | `env -u BLOB_STORE_ID npm run statement-state -- confirm-unsent <email-id>`, then replay the inbound event in Resend |
+
+When finished, run `unset BLOB_READ_WRITE_TOKEN` and re-enable **Sensitive**.
+Review and replay any other events that failed during that time. See
+[the Vercel architecture](ARCHITECTURE.md#vercel-and-resend) for details.
 
 ## What it does each month
 
@@ -226,30 +265,19 @@ That's it. Next statement, the email arrives by itself.
 - **Fails loudly.** Any error emails you the reason. A silent failure would
   mean a month of nobody being charged.
 
-The last two statements are kept in Val Town blob storage under
-`fi-group-repay:statements` — just enough to answer "did anything change?"
-
-## Troubleshooting
-
-| Symptom                 | Cause                                                                   |
-| ----------------------- | ----------------------------------------------------------------------- |
-| No email arrived        | Check the Gmail filter fired, and the val's logs                        |
-| "missing from config"   | Someone joined the plan — add them to `config.json`, rebuild, re-import |
-| Statement was rejected  | Forwarded by hand? The `From:` is now yours, not Fi's                   |
-| A person wasn't charged | Venmo couldn't resolve their handle — check it on their profile         |
-| `ERR_MODULE_NOT_FOUND`  | `src/val.ts` was deployed instead of `valtown/main.ts`                  |
+Vercel stores the last two parsed statements in a private Blob.
 
 ## Privacy
 
-Val Town sees your statement PDF — which carries a home address and phone
-number — and the Venmo handles you configure. That's the cost of an unattended
-monthly run; decide if it's acceptable to you. Nothing is sent to anyone else,
+Resend receives the forwarded PDF and delivers the summary. Vercel processes
+the PDF and stores parsed history, delivery state, and configuration. Raw
+PDFs are not written to Blob. Resend manages its own email and attachment retention. Summary emails go only to the configured owner,
 and no money moves without you tapping a button in the Venmo app.
 
 ## Development
 
 ```bash
-npm test         # no Val Town runtime needed
+npm test
 npm run typecheck
 ```
 
@@ -262,13 +290,10 @@ npm run typecheck
 | `src/history.ts`      | Two-statement store, repeat detection                  |
 | `src/email-render.ts` | The monthly email                                      |
 | `src/process.ts`      | The whole flow, all I/O injected                       |
-| `src/val.ts`          | Val Town adapters — env, blob, email                   |
-| `valtown/main.ts`     | Generated. Deploy this. Don't edit it                  |
-
-`src/process.ts` takes its I/O as arguments, so the monthly path is fully
-tested without a Val Town runtime — the alternative is finding bugs once a
-month.
-
+| `api/resend.ts` | Vercel webhook endpoint |
+| `src/resend-webhook.ts` | Resend signature, receiving, and sending adapters |
+| `src/delivery.ts`, `src/blob-store.ts` | Private history and retry recovery |
+| `scripts/statement-state.ts` | Inspect state and reconcile deliveries |
 For why any of it is shaped this way, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Built with [Claude Code](https://claude.com/claude-code).
